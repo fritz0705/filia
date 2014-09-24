@@ -4,20 +4,18 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 	"net/url"
 
 	"gopkg.in/fatih/set.v0"
 )
 
-type Crawler struct {
-	Protos   map[string]Proto
+type Settings struct {
+	Protos map[string]Proto
 	Decoders map[string]Decoder
-	Queue    CrawlerQueue
-	Set      set.Set
-	Output   chan Document
 }
 
-var DefaultCrawler = Crawler{
+var DefaultSettings = Settings{
 	Protos: map[string]Proto{
 		"http":  HTTPProto{},
 		"https": HTTPProto{},
@@ -37,18 +35,29 @@ var DefaultCrawler = Crawler{
 		"application/zip":       DefaultZIPDecoder,
 		"application/x-gzip":    DefaultGzipDecoder,
 	},
-	Queue:  make(StdCrawlerQueue, 1024),
+}
+
+type Crawler struct {
+	Settings
+	Queue    CrawlerQueue
+	Set      set.Set
+	Output   chan Document
+	Delay    time.Duration
+}
+
+var DefaultCrawler = Crawler{
+	Settings: DefaultSettings,
+	Queue:  make(StdCrawlerQueue),
 	Set:    *set.New(),
 	Output: make(chan Document),
 }
 
 func NewCrawler() *Crawler {
 	return &Crawler{
-		Protos:   make(map[string]Proto),
-		Decoders: make(map[string]Decoder),
 		Queue:    make(StdCrawlerQueue),
 		Set:      *set.New(),
 		Output:   make(chan Document),
+		Delay:    1 * time.Second,
 	}
 }
 
@@ -93,7 +102,9 @@ func (c *Crawler) Crawl() {
 			}
 		default:
 			url := c.Queue.Recv()
-			c.CrawlURL(url)
+			go c.CrawlURL(url)
+			timer := time.NewTimer(c.Delay)
+			<-timer.C
 		}
 	}
 }
