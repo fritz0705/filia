@@ -21,10 +21,7 @@ func main() {
 	flag.Parse()
 
 	esConn := goes.NewConnection(*flHost, *flPort)
-	_, err = esConn.CreateIndex(*flIndex, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+	esConn.CreateIndex(*flIndex, nil)
 
 	go crawler.Emit(flag.Args()...)
 
