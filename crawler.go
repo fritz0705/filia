@@ -22,6 +22,7 @@ type (
 
 		Output chan Document
 		ErrC   chan error
+		CloseC chan struct{}
 	}
 )
 
@@ -94,22 +95,25 @@ func (c *Crawler) CrawlURL(url string) (doc Document, err error) {
 }
 
 func (c *Crawler) Crawl() {
-	select {
-	case _, ok := <-c.Output:
-		if !ok {
-			// Exit crawler when executed as goroutine and output channel was closed
+	for {
+		select {
+		case <-c.CloseC:
 			return
-		}
-	default:
-		url := c.Queue.Recv()
-		doc, err := c.CrawlURL(url)
-		if c.ErrC != nil {
-			c.ErrC <- err
-		}
-		c.Output <- doc
+		case _, ok := <-c.Output:
+			if !ok {
+				// Exit crawler when executed as goroutine and output channel was closed
+				return
+			}
+		default:
+			url := c.Queue.Recv()
+			doc, err := c.CrawlURL(url)
+			if c.ErrC != nil {
+				c.ErrC <- err
+			}
+			c.Output <- doc
 
-		go c.Crawl()
-		c.Emit(doc.AbsLinks()...)
+			c.Emit(doc.AbsLinks()...)
+		}
 	}
 }
 
@@ -132,4 +136,11 @@ func (c *Crawler) Errors() <-chan error {
 		c.ErrC = make(chan error)
 	}
 	return c.ErrC
+}
+
+func (c *Crawler) Close() {
+	if c.CloseC == nil {
+		c.CloseC = make(chan struct{})
+	}
+	c.CloseC <- struct{}{}
 }
