@@ -9,10 +9,6 @@ import (
 	"code.google.com/p/go.net/html"
 )
 
-type Decoder interface {
-	Decode(doc *Document, rc io.ReadCloser) error
-}
-
 var (
 	DefaultHTMLDecoder  = HTMLDecoder{}
 	DefaultPDFDecoder   = PDFDecoder{}
@@ -22,8 +18,21 @@ var (
 	DefaultGzipDecoder  = GzipDecoder{}
 )
 
-type HTMLDecoder struct {
-}
+type (
+	Decoder interface {
+		Decode(doc *Document, rc io.ReadCloser) error
+	}
+
+	HTMLDecoder  struct{}
+	PDFDecoder   struct{}
+	ImageDecoder struct{}
+	MediaDecoder struct{}
+	ZIPDecoder   struct{}
+	TarDecoder   struct{}
+	GzipDecoder  struct {
+		Tar TarDecoder
+	}
+)
 
 func (h HTMLDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	root, err := html.Parse(rc)
@@ -66,35 +75,20 @@ func (h HTMLDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	return nil
 }
 
-type PDFDecoder struct {
-}
-
 func (p PDFDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	return nil
-}
-
-type ImageDecoder struct {
 }
 
 func (i ImageDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	return nil
 }
 
-type MediaDecoder struct {
-}
-
 func (m MediaDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	return nil
 }
 
-type ZIPDecoder struct {
-}
-
 func (z ZIPDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	return nil
-}
-
-type TarDecoder struct {
 }
 
 func (t TarDecoder) Decode(doc *Document, rc io.ReadCloser) error {
@@ -112,10 +106,6 @@ func (t TarDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	}
 
 	return nil
-}
-
-type GzipDecoder struct {
-	Tar TarDecoder
 }
 
 func (g GzipDecoder) Decode(doc *Document, rc io.ReadCloser) error {

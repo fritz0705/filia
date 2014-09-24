@@ -9,46 +9,57 @@ import (
 	"gopkg.in/fatih/set.v0"
 )
 
-type Crawler struct {
-	Protos   map[string]Proto
-	Decoders map[string]Decoder
-	Queue    CrawlerQueue
-	Set      set.Set
-	Output   chan Document
-}
+type (
+	Settings struct {
+		Protos   map[string]Proto
+		Decoders map[string]Decoder
+	}
 
-var DefaultCrawler = Crawler{
-	Protos: map[string]Proto{
-		"http":  HTTPProto{},
-		"https": HTTPProto{},
-		"ftp":   NewFTPProto(),
-		"sftp":  NewSFTPProto(),
-	},
-	Decoders: map[string]Decoder{
-		"text/html":             DefaultHTMLDecoder,
-		"application/xhtml+xml": DefaultHTMLDecoder,
-		"application/pdf":       DefaultPDFDecoder,
-		"image/png":             DefaultImageDecoder,
-		"image/jpeg":            DefaultImageDecoder,
-		"image/gif":             DefaultImageDecoder,
-		"video/webm":            DefaultMediaDecoder,
-		"audio/mpeg":            DefaultMediaDecoder,
-		"application/ogg":       DefaultMediaDecoder,
-		"application/zip":       DefaultZIPDecoder,
-		"application/x-gzip":    DefaultGzipDecoder,
-	},
-	Queue:  make(StdCrawlerQueue, 1024),
-	Set:    *set.New(),
-	Output: make(chan Document),
-}
+	Crawler struct {
+		Settings
+		Queue CrawlerQueue
+		Set   set.Set
 
-func NewCrawler() *Crawler {
-	return &Crawler{
-		Protos:   make(map[string]Proto),
-		Decoders: make(map[string]Decoder),
+		Output chan Document
+		ErrC   chan error
+	}
+)
+
+var (
+	DefaultSettings = Settings{
+		Protos: map[string]Proto{
+			"http":  HTTPProto{},
+			"https": HTTPProto{},
+			"ftp":   NewFTPProto(),
+			"sftp":  NewSFTPProto(),
+		},
+		Decoders: map[string]Decoder{
+			"text/html":             DefaultHTMLDecoder,
+			"application/xhtml+xml": DefaultHTMLDecoder,
+			"application/pdf":       DefaultPDFDecoder,
+			"image/png":             DefaultImageDecoder,
+			"image/jpeg":            DefaultImageDecoder,
+			"image/gif":             DefaultImageDecoder,
+			"video/webm":            DefaultMediaDecoder,
+			"audio/mpeg":            DefaultMediaDecoder,
+			"application/ogg":       DefaultMediaDecoder,
+			"application/zip":       DefaultZIPDecoder,
+			"application/x-gzip":    DefaultGzipDecoder,
+		},
+	}
+	DefaultCrawler = Crawler{
+		Settings: DefaultSettings,
 		Queue:    make(StdCrawlerQueue),
 		Set:      *set.New(),
 		Output:   make(chan Document),
+	}
+)
+
+func NewCrawler() *Crawler {
+	return &Crawler{
+		Queue:  make(StdCrawlerQueue),
+		Set:    *set.New(),
+		Output: make(chan Document),
 	}
 }
 
@@ -61,7 +72,7 @@ func (c *Crawler) Emit(urls ...string) {
 	}
 }
 
-func (c *Crawler) CrawlURL(url string) {
+func (c *Crawler) CrawlURL(url string) (doc Document, err error) {
 	doc, body, err := c.Fetch(url)
 	if body != nil {
 		defer body.Close()
@@ -72,16 +83,14 @@ func (c *Crawler) CrawlURL(url string) {
 
 	decoder := c.Decoders[doc.ContentType]
 	if decoder != nil {
-		err := decoder.Decode(&doc, body)
+		err = decoder.Decode(&doc, body)
 		if err != nil {
 			log.Print(err)
 			return
 		}
 	}
 
-	c.Output <- doc
-
-	c.Emit(doc.AbsLinks()...)
+	return
 }
 
 func (c *Crawler) Crawl() {
@@ -89,11 +98,16 @@ func (c *Crawler) Crawl() {
 		select {
 		case _, ok := <-c.Output:
 			if !ok {
+				// Exit crawler when executed as goroutine and output channel was closed
 				return
 			}
 		default:
 			url := c.Queue.Recv()
-			c.CrawlURL(url)
+			doc, err := c.CrawlURL(url)
+			if c.ErrC != nil {
+				c.ErrC <- err
+			}
+			c.Output <- doc
 		}
 	}
 }
@@ -110,4 +124,11 @@ func (c *Crawler) Fetch(urls string) (Document, io.ReadCloser, error) {
 	}
 
 	return proto.Get(url)
+}
+
+func (c *Crawler) Errors() <-chan error {
+	if c.ErrC == nil {
+		c.ErrC = make(chan error)
+	}
+	return c.ErrC
 }
