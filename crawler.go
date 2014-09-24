@@ -108,6 +108,8 @@ func (c *Crawler) Crawl() {
 				c.ErrC <- err
 			}
 			c.Output <- doc
+
+			go c.Emit(doc.AbsLinks()...)
 		}
 	}
 }
