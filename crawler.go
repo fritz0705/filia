@@ -94,23 +94,22 @@ func (c *Crawler) CrawlURL(url string) (doc Document, err error) {
 }
 
 func (c *Crawler) Crawl() {
-	for {
-		select {
-		case _, ok := <-c.Output:
-			if !ok {
-				// Exit crawler when executed as goroutine and output channel was closed
-				return
-			}
-		default:
-			url := c.Queue.Recv()
-			doc, err := c.CrawlURL(url)
-			if c.ErrC != nil {
-				c.ErrC <- err
-			}
-			c.Output <- doc
-
-			go c.Emit(doc.AbsLinks()...)
+	select {
+	case _, ok := <-c.Output:
+		if !ok {
+			// Exit crawler when executed as goroutine and output channel was closed
+			return
 		}
+	default:
+		url := c.Queue.Recv()
+		doc, err := c.CrawlURL(url)
+		if c.ErrC != nil {
+			c.ErrC <- err
+		}
+		c.Output <- doc
+
+		go c.Crawl()
+		c.Emit(doc.AbsLinks()...)
 	}
 }
 
