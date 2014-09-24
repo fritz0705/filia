@@ -18,6 +18,8 @@ func main() {
 		crawler = filia.DefaultCrawler
 	)
 
+	crawler.Queue = make(filia.StdCrawlerQueue, 1 << 16)
+
 	flag.Parse()
 
 	esConn := goes.NewConnection(*flHost, *flPort)

@@ -17,7 +17,9 @@ type StdCrawlerQueue chan string
 // but is needed to fulfill the CrawlerQueue interface.
 func (s StdCrawlerQueue) Send(urls ...string) {
 	for _, url := range urls {
-		s <- url
+		select {
+		case s <- url:
+		}
 	}
 }
 
