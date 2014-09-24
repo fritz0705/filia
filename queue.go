@@ -19,6 +19,10 @@ func (s StdCrawlerQueue) Send(urls ...string) {
 	for _, url := range urls {
 		select {
 		case s <- url:
+		default:
+			go func(){
+				s <- url
+			}()
 		}
 	}
 }

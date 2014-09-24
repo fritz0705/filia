@@ -35,6 +35,11 @@ type Document struct {
 	ISRC         string
 	Author       string
 	Description  string
+
+	Content string
+
+	NoIndex  bool
+	NoFollow bool
 }
 
 func (d *Document) Init() {

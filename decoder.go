@@ -5,8 +5,6 @@ import (
 	"compress/gzip"
 	"io"
 	"path"
-
-	"code.google.com/p/go.net/html"
 )
 
 var (
@@ -23,7 +21,6 @@ type (
 		Decode(doc *Document, rc io.ReadCloser) error
 	}
 
-	HTMLDecoder  struct{}
 	PDFDecoder   struct{}
 	ImageDecoder struct{}
 	MediaDecoder struct{}
@@ -33,47 +30,6 @@ type (
 		Tar TarDecoder
 	}
 )
-
-func (h HTMLDecoder) Decode(doc *Document, rc io.ReadCloser) error {
-	root, err := html.Parse(rc)
-	if err != nil {
-		return err
-	}
-
-	c := make(chan string)
-	var f func(*html.Node)
-	f = func(node *html.Node) {
-		if node.Type == html.ElementNode && (node.Data == "a" || node.Data == "img") {
-			// Link
-			var link string
-			for _, attr := range node.Attr {
-				if attr.Key == "href" || attr.Key == "src" {
-					link = attr.Val
-				}
-			}
-
-			if link != "" {
-				c <- link
-			}
-		} else if node.Type == html.TextNode && node.Parent != nil && node.Parent.Type == html.ElementNode && node.Parent.Data == "title" {
-			doc.Title = node.Data
-		}
-
-		for c := node.FirstChild; c != nil; c = c.NextSibling {
-			f(c)
-		}
-	}
-	go func() {
-		f(root)
-		close(c)
-	}()
-
-	for link := range c {
-		doc.Links = append(doc.Links, link)
-	}
-
-	return nil
-}
 
 func (p PDFDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 	return nil
@@ -101,8 +57,6 @@ func (t TarDecoder) Decode(doc *Document, rc io.ReadCloser) error {
 		} else if err != nil {
 			return err
 		}
-
-		// TODO Parse subdocuments
 	}
 
 	return nil
