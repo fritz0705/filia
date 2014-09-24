@@ -93,7 +93,7 @@ func (c *Crawler) Crawl() {
 			}
 		default:
 			url := c.Queue.Recv()
-			go c.CrawlURL(url)
+			c.CrawlURL(url)
 		}
 	}
 }
