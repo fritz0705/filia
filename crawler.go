@@ -73,7 +73,7 @@ func (c *Crawler) Emit(urls ...string) {
 	}
 }
 
-func (c *Crawler) CrawlURL(url string) (doc Document, err error) {
+func (c *Settings) CrawlURL(url string) (doc Document, err error) {
 	doc, body, err := c.Fetch(url)
 	if body != nil {
 		defer body.Close()
@@ -119,7 +119,7 @@ func (c *Crawler) Crawl() {
 	}
 }
 
-func (c *Crawler) Fetch(urls string) (Document, io.ReadCloser, error) {
+func (c *Settings) Fetch(urls string) (Document, io.ReadCloser, error) {
 	url, err := url.Parse(urls)
 	if err != nil {
 		return Document{}, nil, err
