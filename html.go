@@ -2,7 +2,6 @@ package filia
 
 import (
 	"bufio"
-	"log"
 	"io"
 	"strings"
 
@@ -137,8 +136,6 @@ func (h HTMLDecoder) scanBody(body *html.Node, doc *Document) {
 	// Fetch sections from section scanner
 	sections := h.scanSection(body, doc)
 
-	log.Print(sections)
-
 	var (
 		headerSections []htmlSection
 		mainSections   []htmlSection
@@ -214,6 +211,16 @@ func (h HTMLDecoder) scanHyperlink(node *html.Node, doc *Document) {
 	}
 }
 
+func (h HTMLDecoder) isSection(node *html.Node) bool {
+	if node.Type != html.ElementNode {
+		return false
+	} else if node.Data == "body" || node.Data == "header" || node.Data == "footer" ||
+	node.Data == "main" || node.Data == "section" {
+		return true
+	}
+	return false
+}
+
 func (h HTMLDecoder) scanSection(body *html.Node, doc *Document) []htmlSection {
 	var (
 		curSection = htmlSection{
@@ -224,32 +231,31 @@ func (h HTMLDecoder) scanSection(body *html.Node, doc *Document) []htmlSection {
 
 	var f func(node *html.Node)
 	f = func(node *html.Node) {
+		var descend = false
 		if node.Type == html.ElementNode {
-			descend := true
+			descend = true
 			switch node.Data {
-			case "header", "footer", "main", "section":
-				if node != body {
-					if !curSection.Empty() {
-						sections = append(sections, curSection)
-						curSection = htmlSection{Node: body}
-					}
-					sections = append(sections, h.scanSection(node, doc)...)
-					descend = false
-				}
 			case "h1":
 				curSection.Heading = h.extractText(node)
 			case "a":
 				h.scanHyperlink(node, doc)
-			case "script", "style":
-				descend = false
-			}
-			if descend {
-				for c := node.FirstChild; c != nil; c = c.NextSibling {
-					f(c)
-				}
 			}
 		} else if node.Type == html.TextNode {
 			curSection.Content += node.Data
+		}
+		if descend {
+			for c := node.FirstChild; c != nil; c = c.NextSibling {
+				if h.isSection(c) {
+					// Handle as new section
+					if !curSection.Empty() {
+						sections = append(sections, curSection)
+						curSection = htmlSection{Node: body}
+					}
+					sections = append(sections, h.scanSection(c, doc)...)
+				} else {
+					f(c)
+				}
+			}
 		}
 	}
 	f(body)

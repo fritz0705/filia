@@ -58,7 +58,7 @@ var (
 
 func NewCrawler() *Crawler {
 	return &Crawler{
-		Queue:  make(StdCrawlerQueue),
+		Queue:  make(StdCrawlerQueue, 1 << 8),
 		Set:    *set.New(),
 		Output: make(chan Document),
 	}
@@ -107,10 +107,12 @@ func (c *Crawler) Crawl() {
 		default:
 			url := c.Queue.Recv()
 			doc, err := c.CrawlURL(url)
-			if c.ErrC != nil {
+			if c.ErrC != nil && err != nil {
 				c.ErrC <- err
 			}
-			c.Output <- doc
+			if err == nil {
+				c.Output <- doc
+			}
 
 			c.Emit(doc.AbsLinks()...)
 		}
