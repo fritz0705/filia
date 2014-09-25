@@ -49,6 +49,8 @@ func (d *Document) Init() {
 func (d Document) AbsLinks() (r []string) {
 	for _, link := range d.Links {
 		l, _ := d.URL.Parse(link)
+		// Strip fragment since it is of no internest
+		l.Fragment = ""
 		r = append(r, l.String())
 	}
 	return
