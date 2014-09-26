@@ -11,6 +11,7 @@ const (
 	DocumentFile = DocumentType(iota)
 	DocumentDirectory
 	DocumentLink
+	DocumentSpecial
 )
 
 type Document struct {
