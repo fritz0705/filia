@@ -1,14 +1,20 @@
 package filia
 
 import (
+	"fmt"
 	"io"
+	"io/ioutil"
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/jlaffaye/ftp"
+	"github.com/pkg/sftp"
+
+	"code.google.com/p/go.crypto/ssh"
 )
 
 type (
@@ -17,8 +23,9 @@ type (
 	}
 
 	FTPProto struct {
-		conns      map[string]*ftp.ServerConn
-		connsMutex sync.Mutex
+		conns       map[string]*ftp.ServerConn
+		connsMutex  sync.Mutex
+		connMutexes map[string]*sync.Mutex
 	}
 
 	HTTPProto struct {
@@ -26,18 +33,23 @@ type (
 	}
 
 	SFTPProto struct {
-		conns map[string]*ftp.ServerConn
-		Creds map[string][2]string
+		conns       map[string]*sftp.Client
+		connsMutex  sync.Mutex
+		connMutexes map[string]*sync.Mutex
+	}
+
+	FileProto struct {
 	}
 )
 
 func NewFTPProto() *FTPProto {
 	return &FTPProto{
-		conns: make(map[string]*ftp.ServerConn),
+		conns:       make(map[string]*ftp.ServerConn),
+		connMutexes: make(map[string]*sync.Mutex),
 	}
 }
 
-func (p *FTPProto) acquireConn(url_ *url.URL) (conn *ftp.ServerConn, err error) {
+func (p *FTPProto) acquireConn(url_ *url.URL) (conn *ftp.ServerConn, mutex *sync.Mutex, err error) {
 	host := url_.Host
 	if !strings.ContainsRune(host, ':') {
 		host += ":21"
@@ -59,11 +71,14 @@ func (p *FTPProto) acquireConn(url_ *url.URL) (conn *ftp.ServerConn, err error) 
 		if err == nil {
 			conn.Login(user, password)
 		}
+		mutex = new(sync.Mutex)
 		p.conns[host] = conn
+		p.connMutexes[host] = mutex
 		return
 	}
 
 	conn = p.conns[host]
+	mutex = p.connMutexes[host]
 	return
 }
 
@@ -71,10 +86,12 @@ func (p *FTPProto) Get(url_ *url.URL) (doc Document, body io.ReadCloser, err err
 	doc.Init()
 	doc.URL = url_
 
-	conn, err := p.acquireConn(url_)
+	conn, mutex, err := p.acquireConn(url_)
 	if err != nil {
 		return
 	}
+	mutex.Lock()
+	defer mutex.Unlock()
 
 	if url_.Path[len(url_.Path)-1] == '/' {
 		doc.Type = DocumentDirectory
@@ -118,11 +135,118 @@ func (p HTTPProto) Get(url_ *url.URL) (doc Document, body io.ReadCloser, err err
 
 func NewSFTPProto() *SFTPProto {
 	return &SFTPProto{
-		conns: make(map[string]*ftp.ServerConn),
-		Creds: make(map[string][2]string),
+		conns:       make(map[string]*sftp.Client),
+		connMutexes: make(map[string]*sync.Mutex),
 	}
 }
 
+func (s *SFTPProto) acquireConn(url_ *url.URL) (conn *sftp.Client, mutex *sync.Mutex, err error) {
+	s.connsMutex.Lock()
+	defer s.connsMutex.Unlock()
+
+	host := url_.Host
+	if !strings.ContainsRune(host, ':') {
+		host += ":22"
+	}
+
+	if s.conns[host] == nil {
+		if url_.User == nil {
+			err = fmt.Errorf("sftp: Missing credentials in URL")
+			return
+		}
+
+		config := &ssh.ClientConfig{
+			User: url_.User.Username(),
+		}
+
+		if pw, ok := url_.User.Password(); ok {
+			config.Auth = append(config.Auth, ssh.Password(pw))
+		}
+
+		ssh, err := ssh.Dial("tcp", host, config)
+		if err != nil {
+			return conn, mutex, err
+		}
+
+		conn, err = sftp.NewClient(ssh)
+		if err != nil {
+			return conn, mutex, err
+		}
+		mutex = new(sync.Mutex)
+
+		s.conns[host] = conn
+		s.connMutexes[host] = mutex
+		return conn, mutex, err
+	}
+
+	conn = s.conns[host]
+	mutex = s.connMutexes[host]
+	return
+}
+
 func (s *SFTPProto) Get(url_ *url.URL) (doc Document, body io.ReadCloser, err error) {
+	conn, mutex, err := s.acquireConn(url_)
+	if err != nil {
+		return
+	}
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	fileInfo, err := conn.Lstat(url_.Path)
+	if err != nil {
+		return
+	}
+
+	doc.Init()
+	doc.URL = url_
+
+	if fileInfo.IsDir() {
+		doc.Type = DocumentDirectory
+		files, err := conn.ReadDir(url_.Path)
+		if err != nil {
+			return doc, body, err
+		}
+		for _, file := range files {
+			doc.Links = append(doc.Links, file.Name())
+		}
+		return doc, body, err
+	} else if !fileInfo.Mode().IsRegular() {
+		doc.Type = DocumentSpecial
+		return
+	}
+
+	body, err = conn.Open(url_.Path)
+	doc.ContentType = "application/octet-stream"
+
+	return
+}
+
+func (p *FileProto) Get(url_ *url.URL) (doc Document, body io.ReadCloser, err error) {
+	fileInfo, err := os.Lstat(url_.Path)
+	if err != nil {
+		return
+	}
+
+	doc.Init()
+	doc.URL = url_
+
+	if fileInfo.IsDir() {
+		doc.Type = DocumentDirectory
+		files, err := ioutil.ReadDir(url_.Path)
+		if err != nil {
+			return doc, body, err
+		}
+		for _, file := range files {
+			doc.Links = append(doc.Links, file.Name())
+		}
+		return doc, body, err
+	} else if !fileInfo.Mode().IsRegular() {
+		doc.Type = DocumentSpecial
+		return
+	}
+
+	body, err = os.Open(url_.Path)
+	doc.ContentType = "application/octet-stream"
+
 	return
 }
